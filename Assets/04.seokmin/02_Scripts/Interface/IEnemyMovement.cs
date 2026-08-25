@@ -9,6 +9,8 @@ namespace RailGame.Enemy.Movement
     /// </summary>
     public interface IEnemyMovement
     {
+        void SetSpeed(float speed);
+
         /// <summary>목표 지점을 향해 이동을 시작/갱신한다.</summary>
         void MoveTowards(Vector3 destination);
 

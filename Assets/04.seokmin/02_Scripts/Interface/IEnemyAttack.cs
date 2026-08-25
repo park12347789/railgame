@@ -9,6 +9,8 @@ namespace RailGame.Enemy.Attack
     /// </summary>
     public interface IEnemyAttack
     {
+        void Initialize(float attackPower, float attackCooldown);
+
         /// <summary>
         /// 공격을 시도한다. 쿨다운 등 내부 조건은 구현체가 직접 관리하고,
         /// 실제로 공격이 발동했는지 여부를 반환한다 (애니메이션 트리거 등에 사용 가능).
