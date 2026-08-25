@@ -18,6 +18,7 @@ namespace RailGame.Enemy.Runtime
         public float AttackRange { get; private set; }
         public float AttackCooldown { get; private set; }
         public float MoveSpeed { get; private set; }
+        public float DetectionRange { get; private set; }
 
         public bool IsDead => CurrentHealth <= 0f;
 
@@ -42,6 +43,7 @@ namespace RailGame.Enemy.Runtime
             AttackRange = data.attackRange;
             AttackCooldown = data.attackCooldown;
             MoveSpeed = data.moveSpeed;
+            DetectionRange = data.detectionRange;
         }
 
         public void TakeDamage(float amount)

@@ -27,6 +27,10 @@ namespace RailGame.Enemy.Data
         [Min(0f)]
         public float attackRange = 1.5f;
 
+        [Min(0f)]
+        [Tooltip("이 범위 안에 타겟이 들어오면 Idle -> Chase로 전환")]
+        public float detectionRange = 6f;
+
         [Min(0.01f)]
         [Tooltip("공격 1회 후 다음 공격까지 걸리는 시간 (초)")]
         public float attackCooldown = 1f;
