@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Railgame.Campaign;
 using Railgame.Map;
 using Railgame.Player;
+using Railgame.Shop;
+using Railgame.Hansol.ShoulderView;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -11,6 +14,7 @@ using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UI;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
@@ -31,6 +35,16 @@ namespace Railgame.Editor
         private const string SummerProfilePath = ProfileFolder + "/MapGenerationProfile_Summer.asset";
         private const string SpringScenePath = SceneFolder + "/Map_Procedural_Spring.unity";
         private const string SummerScenePath = SceneFolder + "/Map_Procedural_Summer.unity";
+        private static readonly (int Seed, string Hash)[] SpringCuratedVariants =
+        {
+            (20260001, "0C8C3C48"), (20260002, "91FE532F"), (20260003, "5246B6BA"),
+            (20260004, "E5B4D824"), (20260005, "D5BACED7")
+        };
+        private static readonly (int Seed, string Hash)[] SummerCuratedVariants =
+        {
+            (20260000, "073BDD4C"), (20260001, "38AEE3B5"), (20260002, "26959A85"),
+            (20260003, "8621DDB1"), (20260004, "F1E4506E")
+        };
 
         [MenuItem("Railgame/Build Procedural Map")]
         public static void Build()
@@ -39,6 +53,7 @@ namespace Railgame.Editor
             EnsureFolder(TextureFolder);
             EnsureFolder(PlayerPrefabFolder);
             RailgameCasualFoundationBuilder.BuildSharedAssets();
+            RailgamePhysicalShopBuilder.Build();
             CreateVoxelTextures();
             ConfigureCharacterTextures();
             GameObject groundCell = CreateGroundCellPrefab();
@@ -54,10 +69,12 @@ namespace Railgame.Editor
             Material summerLeaves = CreateSeasonMaterial("M_Summer_Leaves", "M_Leaves.mat", "T_Summer_Leaves.asset", new Color32(0x43, 0x8A, 0x38, 0xFF));
             Material summerWater = CreateSeasonMaterial("M_Summer_Water", "M_Water.mat", "T_Summer_Water.asset", new Color32(0x24, 0x8E, 0xC8, 0x9E));
 
-            CreateProfile(SpringProfilePath, groundCell, boundary,
+            MapGenerationProfile springProfile = CreateProfile(SpringProfilePath, groundCell, boundary,
                 springGrass, springDirt, springWater, springLeaves, 0.25f, 2, 3, 5, 5, 8, 2, 0.25f);
-            CreateProfile(SummerProfilePath, groundCell, boundary,
+            MapGenerationProfile summerProfile = CreateProfile(SummerProfilePath, groundCell, boundary,
                 summerGrass, summerDirt, summerWater, summerLeaves, 0.40f, 3, 2, 4, 3, 12, 4, 0.65f);
+            SetCuratedVariants(springProfile, SpringCuratedVariants);
+            SetCuratedVariants(summerProfile, SummerCuratedVariants);
 
             AssetDatabase.SaveAssets();
             string springHash = BuildSeasonScene(SpringScenePath, SpringProfilePath, 20260818, "Spring");
@@ -116,8 +133,10 @@ namespace Railgame.Editor
             player.transform.localRotation = Quaternion.identity;
 
             BuildMarkers(root.transform);
-            BuildLightingAndCamera(player.transform);
-            RailgameCasualFoundationBuilder.AddGameplayFoundation(root.transform);
+            Camera gameplayCamera = BuildLightingAndCamera(player.transform);
+            Text interactionPrompt = RailgameCasualFoundationBuilder.AddGameplayFoundation(root.transform);
+            ConfigurePlayerInteraction(player, gameplayCamera, interactionPrompt);
+            BuildCampaignStage(root.transform, player, season);
             generator.GenerateNow();
             generatorData.Update();
             generatorData.FindProperty("buildNavMeshAfterGenerate").boolValue = true;
@@ -279,6 +298,193 @@ namespace Railgame.Editor
             return hashes.Count;
         }
 
+        public static void GenerateCuratedSeedCandidates()
+        {
+            string outputRoot = GetCuratedOutputRoot();
+            int firstSeed = ReadPositiveEnvironmentInt("RAILGAME_CANDIDATE_FIRST_SEED", 20260000);
+            int scanCount = ReadPositiveEnvironmentInt("RAILGAME_CANDIDATE_SCAN_COUNT", 1000);
+            int shortlistCount = ReadPositiveEnvironmentInt("RAILGAME_CANDIDATE_SHORTLIST_COUNT", 15);
+            Directory.CreateDirectory(outputRoot);
+
+            List<string> scanRows = new() { "season,seed,hash,result,error" };
+            List<string> candidateRows = new()
+            {
+                "season,seed,hash,repeat_match,water,dirt,tree,iron,hill,clusters,rivers,mountains,jump_links,enemy_markers,movement_path,rail_path,economy_status,result,error"
+            };
+            int springCandidates = GenerateCandidatesForScene(SpringScenePath, "Spring", firstSeed, scanCount,
+                shortlistCount, outputRoot, scanRows, candidateRows);
+            int summerCandidates = GenerateCandidatesForScene(SummerScenePath, "Summer", firstSeed, scanCount,
+                shortlistCount, outputRoot, scanRows, candidateRows);
+
+            string scanPath = Path.Combine(outputRoot, "seed-scan.csv");
+            string candidatePath = Path.Combine(outputRoot, "candidate-evidence.csv");
+            File.WriteAllLines(scanPath, scanRows);
+            File.WriteAllLines(candidatePath, candidateRows);
+            Require(springCandidates >= MapGenerationProfile.RequiredCuratedVariantCount,
+                $"Spring has only {springCandidates} full-generation candidates.");
+            Require(summerCandidates >= MapGenerationProfile.RequiredCuratedVariantCount,
+                $"Summer has only {summerCandidates} full-generation candidates.");
+            Debug.Log($"RAILGAME_CURATED_CANDIDATES_OK spring={springCandidates} summer={summerCandidates} scan={scanPath} evidence={candidatePath}");
+        }
+
+        private static int GenerateCandidatesForScene(string scenePath, string season, int firstSeed, int scanCount,
+            int shortlistCount, string outputRoot, List<string> scanRows, List<string> candidateRows)
+        {
+            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            ProceduralMapGenerator generator = Object.FindFirstObjectByType<ProceduralMapGenerator>();
+            Require(generator != null, $"{season} ProceduralMapGenerator missing");
+
+            SerializedObject generatorData = new(generator);
+            SerializedProperty buildNavigation = generatorData.FindProperty("buildNavMeshAfterGenerate");
+            bool originalBuildNavigation = buildNavigation.boolValue;
+            buildNavigation.boolValue = false;
+            generatorData.ApplyModifiedPropertiesWithoutUndo();
+
+            int completed = 0;
+            try
+            {
+                List<int> logicalPasses = new();
+                HashSet<string> hashes = new(StringComparer.Ordinal);
+                for (int seed = firstSeed; seed < firstSeed + scanCount; seed++)
+                {
+                    try
+                    {
+                        string hash = generator.GenerateLogicalLayoutForValidation(seed);
+                        Require(hashes.Add(hash), $"Duplicate layout hash {hash}");
+                        logicalPasses.Add(seed);
+                        scanRows.Add($"{season},{seed},{hash},PASS,");
+                    }
+                    catch (Exception exception)
+                    {
+                        scanRows.Add($"{season},{seed},,FAIL,{Csv(exception.Message)}");
+                    }
+                }
+
+                string captureFolder = Path.Combine(outputRoot, "Candidates", season);
+                Directory.CreateDirectory(captureFolder);
+                foreach (int seed in logicalPasses)
+                {
+                    if (completed >= shortlistCount)
+                        break;
+
+                    try
+                    {
+                        generator.GenerateForValidation(seed);
+                        ValidateGeneratedMap(generator);
+                        string firstHash = generator.LastLayoutHash;
+                        string capturePath = Path.Combine(captureFolder, $"seed-{seed}-{firstHash}.png");
+                        CaptureCurrentScene(capturePath, season);
+                        generator.GenerateForValidation(seed);
+                        ValidateGeneratedMap(generator);
+                        bool repeatMatch = string.Equals(firstHash, generator.LastLayoutHash, StringComparison.Ordinal);
+                        Require(repeatMatch, "Repeated full generation changed layout hash");
+                        candidateRows.Add(BuildValidationRow(season, seed, firstHash, true, generator, "PASS", string.Empty));
+                        completed++;
+                    }
+                    catch (Exception exception)
+                    {
+                        candidateRows.Add(BuildValidationRow(season, seed, generator.LastLayoutHash, false, generator,
+                            "FAIL", exception.Message));
+                    }
+                }
+
+                return completed;
+            }
+            finally
+            {
+                generatorData.Update();
+                generatorData.FindProperty("buildNavMeshAfterGenerate").boolValue = originalBuildNavigation;
+                generatorData.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
+        public static void ValidateCuratedVariants()
+        {
+            string outputRoot = GetCuratedOutputRoot();
+            Directory.CreateDirectory(outputRoot);
+            List<string> rows = new()
+            {
+                "season,index,seed,expected_hash,actual_hash,repeat_match,water,dirt,tree,iron,hill,clusters,rivers,mountains,jump_links,enemy_markers,movement_path,rail_path,navmesh_path,economy_status,result,error"
+            };
+            int failures = 0;
+            string reportPath = Path.Combine(outputRoot, "curated-validation.csv");
+            try
+            {
+                failures += ValidateCuratedScene(SpringScenePath, "Spring", rows);
+                failures += ValidateCuratedScene(SummerScenePath, "Summer", rows);
+            }
+            finally
+            {
+                ProceduralMapGenerator.SelectVariant(0);
+                File.WriteAllLines(reportPath, rows);
+            }
+            Require(failures == 0, $"Curated map validation failed for {failures} variants. Report: {reportPath}");
+            Debug.Log($"RAILGAME_CURATED_MAPS_OK maps=10 report={reportPath}");
+        }
+
+        private static int ValidateCuratedScene(string scenePath, string season, List<string> rows)
+        {
+            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            ProceduralMapGenerator generator = Object.FindFirstObjectByType<ProceduralMapGenerator>();
+            RuntimeNavigationController navigation = Object.FindFirstObjectByType<RuntimeNavigationController>();
+            Require(generator != null, $"{season} ProceduralMapGenerator missing");
+            Require(navigation != null, $"{season} RuntimeNavigationController missing");
+            generator.Profile.ValidateCuratedVariants();
+
+            int failures = 0;
+            for (int index = 0; index < MapGenerationProfile.RequiredCuratedVariantCount; index++)
+            {
+                MapGenerationProfile.CuratedMapVariant variant = generator.Profile.GetCuratedVariant(index);
+                string actualHash = string.Empty;
+                try
+                {
+                    ProceduralMapGenerator.SelectVariant(index);
+                    generator.GenerateNow();
+                    ValidateGeneratedMap(generator);
+                    ValidateNavMeshPath(generator, navigation);
+                    actualHash = generator.LastLayoutHash;
+                    generator.GenerateNow();
+                    ValidateGeneratedMap(generator);
+                    ValidateNavMeshPath(generator, navigation);
+                    bool repeatMatch = string.Equals(actualHash, generator.LastLayoutHash, StringComparison.Ordinal);
+                    Require(repeatMatch, "Repeated curated generation changed layout hash");
+                    rows.Add(BuildCuratedValidationRow(season, index, variant, actualHash, true, generator, true,
+                        "PASS", string.Empty));
+                }
+                catch (Exception exception)
+                {
+                    failures++;
+                    rows.Add(BuildCuratedValidationRow(season, index, variant, actualHash, false, generator, false,
+                        "FAIL", exception.Message));
+                }
+            }
+            return failures;
+        }
+
+        public static void CaptureCuratedVariants()
+        {
+            string outputRoot = Path.Combine(GetCuratedOutputRoot(), "Final");
+            CaptureCuratedScene(SpringScenePath, "Spring", outputRoot);
+            CaptureCuratedScene(SummerScenePath, "Summer", outputRoot);
+            ProceduralMapGenerator.SelectVariant(0);
+            Debug.Log($"RAILGAME_CURATED_CAPTURES_OK maps=10 root={outputRoot}");
+        }
+
+        private static void CaptureCuratedScene(string scenePath, string season, string outputRoot)
+        {
+            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            ProceduralMapGenerator generator = Object.FindFirstObjectByType<ProceduralMapGenerator>();
+            Require(generator != null, $"{season} ProceduralMapGenerator missing");
+            for (int index = 0; index < MapGenerationProfile.RequiredCuratedVariantCount; index++)
+            {
+                ProceduralMapGenerator.SelectVariant(index);
+                generator.GenerateNow();
+                string path = Path.Combine(outputRoot, season,
+                    $"variant-{index + 1}-seed-{generator.WorldSeed}-{generator.LastLayoutHash}.png");
+                CaptureCurrentScene(path, season);
+            }
+        }
+
         public static void CaptureOverview()
         {
             string springPath = Environment.GetEnvironmentVariable("RAILGAME_SPRING_CAPTURE");
@@ -295,6 +501,11 @@ namespace Railgame.Editor
         private static void CaptureScene(string scenePath, string outputPath, string season)
         {
             EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            CaptureCurrentScene(outputPath, season);
+        }
+
+        private static void CaptureCurrentScene(string outputPath, string season)
+        {
             Camera camera = Camera.main;
             Require(camera != null, $"{season} procedural overview camera missing");
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? throw new InvalidOperationException("Invalid capture path"));
@@ -346,8 +557,8 @@ namespace Railgame.Editor
             SetObject(data, "ironPrefab", PrefabFolder + "/PF_Rock_1x1.prefab");
             data.FindProperty("railPrefab").objectReferenceValue = null;
             data.FindProperty("enemyPrefab").objectReferenceValue = null;
-            data.FindProperty("treeCount").intValue = 12;
-            data.FindProperty("ironCount").intValue = 12;
+            data.FindProperty("treeCount").intValue = 24;
+            data.FindProperty("ironCount").intValue = 24;
             data.FindProperty("waterCellCount").intValue = 12;
             data.FindProperty("hillResourceChance").floatValue = hillResourceChance;
             data.FindProperty("groundMaterial").objectReferenceValue = groundMaterial;
@@ -364,6 +575,23 @@ namespace Railgame.Editor
             data.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(profile);
             return profile;
+        }
+
+        private static void SetCuratedVariants(MapGenerationProfile profile, (int Seed, string Hash)[] variants)
+        {
+            Require(variants.Length == MapGenerationProfile.RequiredCuratedVariantCount,
+                "Curated profile requires exactly five variants");
+            SerializedObject data = new(profile);
+            SerializedProperty items = data.FindProperty("curatedVariants");
+            items.arraySize = variants.Length;
+            for (int index = 0; index < variants.Length; index++)
+            {
+                SerializedProperty item = items.GetArrayElementAtIndex(index);
+                item.FindPropertyRelative("seed").intValue = variants[index].Seed;
+                item.FindPropertyRelative("expectedLayoutHash").stringValue = variants[index].Hash;
+            }
+            data.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(profile);
         }
 
         private static Material CreateSeasonMaterial(string name, string templateFile, string textureFile, Color color)
@@ -561,6 +789,12 @@ namespace Railgame.Editor
                 controller.stepOffset = 0.25f;
                 controller.skinWidth = 0.04f;
                 root.AddComponent<RailgamePlayerController>();
+                root.AddComponent<ShoulderInteractor>();
+                RailgameCarryHolder carryHolder = root.AddComponent<RailgameCarryHolder>();
+                Transform carryAnchor = new GameObject("CarryAnchor").transform;
+                carryAnchor.SetParent(root.transform, false);
+                carryAnchor.localPosition = new Vector3(0f, 1.15f, 0.55f);
+                carryHolder.Initialize(carryAnchor);
 
                 GameObject visual = (GameObject)PrefabUtility.InstantiatePrefab(visualPrefab, root.transform);
                 visual.name = "Visual";
@@ -581,6 +815,90 @@ namespace Railgame.Editor
             CreateMarker(markers.transform, "GoalMarker", new Vector3(11.5f, 1.01f, 125.5f), new Color(0.9f, 0.65f, 0.15f));
         }
 
+        private static void ConfigurePlayerInteraction(GameObject player, Camera gameplayCamera, Text interactionPrompt)
+        {
+            ShoulderInteractor interactor = player.GetComponent<ShoulderInteractor>();
+            RailgameCarryHolder carryHolder = player.GetComponent<RailgameCarryHolder>();
+            Require(interactor != null && carryHolder != null, "Player shop interaction components missing");
+            interactor.Initialize(gameplayCamera, interactionPrompt, 6f);
+        }
+
+        private static void BuildCampaignStage(Transform parent, GameObject player, string season)
+        {
+            RailgameCampaignSession session = AssetDatabase.LoadAssetAtPath<RailgameCampaignSession>(
+                RailgameCasualFoundationBuilder.CampaignSessionPath);
+            Require(session != null, "Campaign session asset missing");
+            RailgameCarryHolder holder = player.GetComponent<RailgameCarryHolder>();
+            Require(holder != null, "Player carry holder missing");
+
+            BuildBolts(parent);
+            ShoulderShopEconomy stageEconomy = BuildStageBoltBank(parent, session);
+            RailgameStageFlowController flow = parent.gameObject.AddComponent<RailgameStageFlowController>();
+            if (string.Equals(season, "Spring", StringComparison.Ordinal))
+            {
+                GameObject shopPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(RailgamePhysicalShopBuilder.RootPrefabPath);
+                Require(shopPrefab != null, "Physical shop prefab missing");
+                GameObject shop = (GameObject)PrefabUtility.InstantiatePrefab(shopPrefab, parent);
+                shop.name = "SpringStationPhysicalShop";
+                shop.transform.localPosition = new Vector3(11.5f, 1f, 117f);
+
+                RailgameShopSocket[] sockets = shop.GetComponentsInChildren<RailgameShopSocket>(true);
+                RailgameShopCheckout checkout = shop.GetComponentInChildren<RailgameShopCheckout>(true);
+                Require(sockets.Length == 3 && checkout != null,
+                    "Physical shop prefab wiring incomplete");
+                checkout.Initialize(stageEconomy, sockets, new[] { holder });
+                flow.Initialize(session, RailgameCampaignSeason.Spring, shop, checkout);
+                shop.SetActive(false);
+            }
+            else if (string.Equals(season, "Summer", StringComparison.Ordinal))
+            {
+                flow.Initialize(session, RailgameCampaignSeason.Summer);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Unsupported campaign season: {season}");
+            }
+        }
+
+        private static void BuildBolts(Transform parent)
+        {
+            GameObject boltPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(RailgamePhysicalShopBuilder.BoltPrefabPath);
+            Require(boltPrefab != null, "Bolt pickup prefab missing");
+            GameObject group = new("Bolts_ToDepositAtTrain");
+            group.transform.SetParent(parent, false);
+            Vector3[] positions =
+            {
+                new(11.5f, 1.5f, 18f),
+                new(11.5f, 1.5f, 58f),
+                new(11.5f, 1.5f, 98f)
+            };
+            for (int index = 0; index < positions.Length; index++)
+            {
+                GameObject bolt = (GameObject)PrefabUtility.InstantiatePrefab(boltPrefab, group.transform);
+                bolt.name = $"Bolt_{index + 1}";
+                bolt.transform.localPosition = positions[index];
+            }
+        }
+
+        private static ShoulderShopEconomy BuildStageBoltBank(Transform parent, RailgameCampaignSession session)
+        {
+            GameObject bank = new("CampaignBoltBank");
+            bank.transform.SetParent(parent, false);
+            ShoulderShopEconomy economy = bank.AddComponent<ShoulderShopEconomy>();
+            RailgameCampaignEconomyBridge bridge = bank.AddComponent<RailgameCampaignEconomyBridge>();
+            bridge.Initialize(session, economy);
+
+            GameObject deposit = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            deposit.name = "BoltDepositPoint_ConnectToTrain";
+            deposit.transform.SetParent(parent, false);
+            deposit.transform.localPosition = new Vector3(11.5f, 1.1f, 4f);
+            deposit.transform.localScale = new Vector3(0.75f, 0.08f, 0.75f);
+            deposit.GetComponent<Collider>().isTrigger = true;
+            deposit.AddComponent<Rigidbody>().isKinematic = true;
+            deposit.AddComponent<RailgameBoltDeposit>().Initialize(economy);
+            return economy;
+        }
+
         private static void CreateMarker(Transform parent, string name, Vector3 localPosition, Color color)
         {
             GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -594,7 +912,7 @@ namespace Railgame.Editor
             marker.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        private static void BuildLightingAndCamera(Transform player)
+        private static Camera BuildLightingAndCamera(Transform player)
         {
             GameObject cameraObject = new("Procedural Overview Camera");
             Camera camera = cameraObject.AddComponent<Camera>();
@@ -626,6 +944,7 @@ namespace Railgame.Editor
                 volume.sharedProfile = volumeProfile;
                 volume.enabled = false;
             }
+            return camera;
         }
 
         private static void AddScenesToBuildSettings()
@@ -639,6 +958,90 @@ namespace Railgame.Editor
             scenes.Insert(0, new EditorBuildSettingsScene(SpringScenePath, true));
             scenes.Insert(0, new EditorBuildSettingsScene(RailgameCasualFoundationBuilder.LobbyScenePath, true));
             EditorBuildSettings.scenes = scenes.ToArray();
+        }
+
+        private static void ValidateGeneratedMap(ProceduralMapGenerator generator)
+        {
+            int legCount = ProceduralMapGenerator.MapLength / ProceduralMapGenerator.LegLength;
+            int expectedDirt = generator.Profile.DirtBaseCount * legCount +
+                               generator.Profile.DirtIncreasePerLeg * legCount * (legCount - 1) / 2;
+            Require(generator.GeneratedWaterCount >= generator.Profile.WaterCellCount * legCount,
+                "Water guarantee failed");
+            Require(generator.GeneratedTreeCount == generator.Profile.TreeCount * legCount,
+                "Tree slot count mismatch");
+            Require(generator.GeneratedIronCount == generator.Profile.IronCount * legCount,
+                "Iron slot count mismatch");
+            Require(generator.GeneratedDirtCount == expectedDirt, "Dirt progression count mismatch");
+            Require(generator.GeneratedRiverCount == 2, "Transverse river count mismatch");
+            Require(generator.GeneratedResourceClusterCount == legCount * 6, "Resource cluster count mismatch");
+            Require(generator.GeneratedMountainCount == 64, "Background mountain count mismatch");
+            Require(generator.GeneratedJumpLinkCount > 0, "No one-block traversal links generated");
+            Require(generator.GeneratedEnemySpawnMarkerCount == legCount * 2, "Enemy entry marker count mismatch");
+            Require(generator.HasCompleteMovementPath(), "Player/enemy movement graph is incomplete");
+            Require(generator.HasRailPathAfterMining(), "Rail route after mining is incomplete");
+        }
+
+        private static void ValidateNavMeshPath(ProceduralMapGenerator generator, RuntimeNavigationController navigation)
+        {
+            Require(navigation.Surface != null && navigation.Surface.navMeshData != null, "NavMesh data missing");
+            Vector3 start = generator.transform.TransformPoint(new Vector3(11.5f, 1f, 2.5f));
+            Vector3 goal = generator.transform.TransformPoint(new Vector3(11.5f, 1f, 125.5f));
+            Require(NavMesh.SamplePosition(start, out NavMeshHit startHit, 2f, NavMesh.AllAreas), "NavMesh start missing");
+            Require(NavMesh.SamplePosition(goal, out NavMeshHit goalHit, 2f, NavMesh.AllAreas), "NavMesh goal missing");
+            NavMeshPath path = new();
+            Require(NavMesh.CalculatePath(startHit.position, goalHit.position, NavMesh.AllAreas, path) &&
+                    path.status == NavMeshPathStatus.PathComplete, "NavMesh start-goal path is incomplete");
+        }
+
+        private static string BuildValidationRow(string season, int seed, string hash, bool repeatMatch,
+            ProceduralMapGenerator generator, string result, string error)
+        {
+            return string.Join(",", season, seed, hash, Bool(repeatMatch), generator.GeneratedWaterCount,
+                generator.GeneratedDirtCount, generator.GeneratedTreeCount, generator.GeneratedIronCount,
+                generator.GeneratedHillResourceCount, generator.GeneratedResourceClusterCount,
+                generator.GeneratedRiverCount, generator.GeneratedMountainCount, generator.GeneratedJumpLinkCount,
+                generator.GeneratedEnemySpawnMarkerCount, Bool(generator.HasCompleteMovementPath()),
+                Bool(generator.HasRailPathAfterMining()), "NOT_IMPLEMENTED", result, Csv(error));
+        }
+
+        private static string BuildCuratedValidationRow(string season, int index,
+            MapGenerationProfile.CuratedMapVariant variant, string actualHash, bool repeatMatch,
+            ProceduralMapGenerator generator, bool navMeshPath, string result, string error)
+        {
+            return string.Join(",", season, index, variant.Seed, variant.ExpectedLayoutHash, actualHash,
+                Bool(repeatMatch), generator.GeneratedWaterCount, generator.GeneratedDirtCount,
+                generator.GeneratedTreeCount, generator.GeneratedIronCount, generator.GeneratedHillResourceCount,
+                generator.GeneratedResourceClusterCount, generator.GeneratedRiverCount, generator.GeneratedMountainCount,
+                generator.GeneratedJumpLinkCount, generator.GeneratedEnemySpawnMarkerCount,
+                Bool(generator.HasCompleteMovementPath()), Bool(generator.HasRailPathAfterMining()), Bool(navMeshPath),
+                "NOT_IMPLEMENTED", result, Csv(error));
+        }
+
+        private static string GetCuratedOutputRoot()
+        {
+            string configured = Environment.GetEnvironmentVariable("RAILGAME_CURATED_OUTPUT");
+            return string.IsNullOrWhiteSpace(configured)
+                ? Path.GetFullPath("Temp/CuratedMaps")
+                : Path.GetFullPath(configured);
+        }
+
+        private static int ReadPositiveEnvironmentInt(string name, int fallback)
+        {
+            string value = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(value))
+                return fallback;
+            if (!int.TryParse(value, out int parsed) || parsed <= 0)
+                throw new InvalidOperationException($"{name} must be a positive integer.");
+            return parsed;
+        }
+
+        private static string Bool(bool value) => value ? "true" : "false";
+
+        private static string Csv(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+            return $"\"{value.Replace("\"", "\"\"")}\"";
         }
 
         private static void SetObject(SerializedObject data, string propertyName, string assetPath)

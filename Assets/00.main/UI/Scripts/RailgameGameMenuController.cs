@@ -1,3 +1,5 @@
+using Railgame.Campaign;
+using Railgame.Map;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -11,19 +13,17 @@ namespace Railgame.UI
         {
             Playing,
             Paused,
-            Settings,
-            Shopping
+            Settings
         }
 
         [SerializeField] private GameObject pausePanel;
         [SerializeField] private RailgameSettingsPanel settingsPanel;
-        [SerializeField] private RailgameShopScreen shopScreen;
         [SerializeField] private Button resumeButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button restartButton;
         [SerializeField] private Button lobbyButton;
         [SerializeField] private Button quitButton;
-        [SerializeField] private Button openShopButton;
+        [SerializeField] private RailgameCampaignSession campaignSession;
         [SerializeField] private string lobbySceneName = "Railgame_Lobby";
 
         private MenuState state;
@@ -36,9 +36,7 @@ namespace Railgame.UI
             restartButton?.onClick.AddListener(Restart);
             lobbyButton?.onClick.AddListener(ReturnToLobby);
             quitButton?.onClick.AddListener(Quit);
-            openShopButton?.onClick.AddListener(OpenShop);
             if (settingsPanel != null) settingsPanel.Closed += ReturnFromSettings;
-            if (shopScreen != null) shopScreen.Closed += Resume;
             SetState(MenuState.Playing);
         }
 
@@ -52,18 +50,15 @@ namespace Railgame.UI
                 case MenuState.Playing: SetState(MenuState.Paused); break;
                 case MenuState.Paused: Resume(); break;
                 case MenuState.Settings: settingsPanel?.CancelAndClose(); break;
-                case MenuState.Shopping: shopScreen?.Close(); break;
             }
         }
 
         private void OnDestroy()
         {
             if (settingsPanel != null) settingsPanel.Closed -= ReturnFromSettings;
-            if (shopScreen != null) shopScreen.Closed -= Resume;
             Time.timeScale = 1f;
         }
 
-        public void OpenShop() => SetState(MenuState.Shopping);
         public void Resume() => SetState(MenuState.Playing);
 
         private void OpenSettings()
@@ -80,8 +75,6 @@ namespace Railgame.UI
             state = next;
             if (pausePanel != null) pausePanel.SetActive(next == MenuState.Paused);
             if (settingsPanel != null && next != MenuState.Settings) settingsPanel.gameObject.SetActive(false);
-            if (shopScreen != null && next != MenuState.Shopping) shopScreen.gameObject.SetActive(false);
-            if (next == MenuState.Shopping) shopScreen?.Open();
 
             bool frozen = next != MenuState.Playing;
             Time.timeScale = frozen ? 0f : 1f;
@@ -89,14 +82,41 @@ namespace Railgame.UI
             Cursor.lockState = frozen ? CursorLockMode.None : CursorLockMode.Locked;
         }
 
-        private static void Restart()
+        private void Restart()
         {
+            if (campaignSession == null)
+            {
+                Debug.LogError("RAILGAME_CAMPAIGN_SESSION_MISSING restart rejected", this);
+                return;
+            }
+
+            if (campaignSession.State is RailgameCampaignState.SpringFailed or RailgameCampaignState.SummerFailed)
+                campaignSession.RetryStage();
+            else if (campaignSession.State is RailgameCampaignState.SpringPlaying or RailgameCampaignState.SummerPlaying)
+            {
+                campaignSession.FailStage();
+                campaignSession.RetryStage();
+            }
+            else
+            {
+                Debug.LogError($"RAILGAME_RESTART_INVALID state={campaignSession.State}", this);
+                return;
+            }
+
             Time.timeScale = 1f;
+            ProceduralMapGenerator.SelectVariant(campaignSession.CurrentVariantIndex);
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
 
         private void ReturnToLobby()
         {
+            if (campaignSession == null)
+            {
+                Debug.LogError("RAILGAME_CAMPAIGN_SESSION_MISSING lobby return rejected", this);
+                return;
+            }
+
+            campaignSession.ResetToLobby();
             Time.timeScale = 1f;
             SceneManager.LoadScene(lobbySceneName);
         }

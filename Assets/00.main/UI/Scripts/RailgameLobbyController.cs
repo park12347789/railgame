@@ -1,24 +1,28 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using Railgame.Campaign;
+using Railgame.Map;
 
 namespace Railgame.UI
 {
     public sealed class RailgameLobbyController : MonoBehaviour
     {
-        [SerializeField] private Button springButton;
-        [SerializeField] private Button summerButton;
+        [SerializeField] private Button startButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button quitButton;
         [SerializeField] private RailgameSettingsPanel settingsPanel;
+        [SerializeField] private RailgameCampaignSession campaignSession;
         [SerializeField] private string springSceneName = "Map_Procedural_Spring";
-        [SerializeField] private string summerSceneName = "Map_Procedural_Summer";
 
         private void Awake()
         {
             RailgameSettingsPanel.ApplySavedSettings();
-            springButton?.onClick.AddListener(StartSpring);
-            summerButton?.onClick.AddListener(StartSummer);
+            if (campaignSession == null)
+                Debug.LogError("RAILGAME_CAMPAIGN_SESSION_MISSING lobby", this);
+            else
+                campaignSession.ResetToLobby();
+            startButton?.onClick.AddListener(StartGame);
             settingsButton?.onClick.AddListener(OpenSettings);
             quitButton?.onClick.AddListener(Quit);
             if (settingsPanel != null) settingsPanel.gameObject.SetActive(false);
@@ -26,14 +30,23 @@ namespace Railgame.UI
 
         private void OnDestroy()
         {
-            springButton?.onClick.RemoveListener(StartSpring);
-            summerButton?.onClick.RemoveListener(StartSummer);
+            startButton?.onClick.RemoveListener(StartGame);
             settingsButton?.onClick.RemoveListener(OpenSettings);
             quitButton?.onClick.RemoveListener(Quit);
         }
 
-        private void StartSpring() => SceneManager.LoadScene(springSceneName);
-        private void StartSummer() => SceneManager.LoadScene(summerSceneName);
+        private void StartGame()
+        {
+            if (campaignSession == null)
+            {
+                Debug.LogError("RAILGAME_CAMPAIGN_SESSION_MISSING lobby cannot start", this);
+                return;
+            }
+
+            campaignSession.StartNewRun();
+            ProceduralMapGenerator.SelectVariant(campaignSession.SpringVariantIndex);
+            SceneManager.LoadScene(springSceneName);
+        }
         private void OpenSettings() => settingsPanel?.Open();
 
         private static void Quit()

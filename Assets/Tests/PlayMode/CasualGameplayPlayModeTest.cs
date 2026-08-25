@@ -13,19 +13,50 @@ namespace Railgame.Tests
     public sealed class CasualGameplayPlayModeTest : InputTestFixture
     {
         [UnityTest]
-        public IEnumerator LobbyToSummerLoadsGameplayFoundation()
+        public IEnumerator LobbyStartAlwaysLoadsSpringFoundation()
         {
             Time.timeScale = 1f;
             InputSystem.AddDevice<Keyboard>();
             SceneManager.LoadScene("Railgame_Lobby");
             yield return null;
-            Click("SummerButton");
-            while (SceneManager.GetActiveScene().name != "Map_Procedural_Summer") yield return null;
+            Click("StartButton");
+            while (SceneManager.GetActiveScene().name != "Map_Procedural_Spring") yield return null;
             yield return null;
 
             Assert.That(Find("Railgame.Player.RailgamePlayerController"), Is.Not.Null);
             Assert.That(Find("Railgame.Player.WaterSlowVolume"), Is.Not.Null);
             Assert.That(Find("Railgame.UI.RailgameGameMenuController"), Is.Not.Null);
+            Component generator = Find("Railgame.Map.ProceduralMapGenerator");
+            int selectedIndex = StaticProperty<int>(generator.GetType(), "SelectedVariantIndex");
+            Assert.That(selectedIndex, Is.InRange(0, 4));
+            AssertCuratedVariant(generator, selectedIndex);
+        }
+
+        [UnityTest]
+        public IEnumerator SpringStationCheckoutLoadsSavedSummerVariant()
+        {
+            Time.timeScale = 1f;
+            SceneManager.LoadScene("Railgame_Lobby");
+            yield return null;
+            Click("StartButton");
+            while (SceneManager.GetActiveScene().name != "Map_Procedural_Spring") yield return null;
+            yield return null;
+
+            Component flow = Find("Railgame.Campaign.RailgameStageFlowController");
+            Invoke(flow, "CompleteAtStation");
+            Component checkout = Find("Railgame.Shop.RailgameShopCheckout");
+            Assert.That(checkout, Is.Not.Null);
+            Assert.That(checkout.gameObject.activeInHierarchy, Is.True);
+            Assert.That(Property<bool>(checkout, "CanDepart"), Is.True);
+            Assert.That((bool)Invoke(checkout, "TryCheckout"), Is.True);
+
+            while (SceneManager.GetActiveScene().name != "Map_Procedural_Summer") yield return null;
+            yield return null;
+            Component generator = Find("Railgame.Map.ProceduralMapGenerator");
+            Object session = Resources.Load("RailgameCampaignSession");
+            int summerIndex = Property<int>(session, "SummerVariantIndex");
+            Assert.That(StaticProperty<int>(generator.GetType(), "SelectedVariantIndex"), Is.EqualTo(summerIndex));
+            AssertCuratedVariant(generator, summerIndex);
         }
 
         [UnityTest]
@@ -43,7 +74,7 @@ namespace Railgame.Tests
             Invoke(settings, "CancelAndClose");
             Assert.That(settings.gameObject.activeSelf, Is.False);
 
-            Click("SpringButton");
+            Click("StartButton");
             while (SceneManager.GetActiveScene().name != "Map_Procedural_Spring")
                 yield return null;
             yield return null;
@@ -69,7 +100,6 @@ namespace Railgame.Tests
             foreach (Component dirtBlock in FindAll("Railgame.Map.DirtBlock"))
             {
                 Vector2Int cell = Property<Vector2Int>(dirtBlock, "Cell");
-                if (cell != new Vector2Int(13, 118)) continue;
                 foreach (Vector2Int direction in directions)
                 {
                     Vector3 target = generator.transform.TransformPoint(new Vector3(cell.x + 0.5f, 2f, cell.y + 0.5f));
@@ -127,8 +157,14 @@ namespace Railgame.Tests
 
             Component navigation = Find("Railgame.Map.RuntimeNavigationController");
             int updateCount = Property<int>(navigation, "CompletedUpdateCount");
-            Component dirt = Find("Railgame.Map.DirtBlock");
-            Assert.That((bool)Invoke(dirt, "Mine"), Is.True);
+            bool mined = false;
+            foreach (Component dirt in FindAll("Railgame.Map.DirtBlock"))
+            {
+                if (!(bool)Invoke(dirt, "Mine")) continue;
+                mined = true;
+                break;
+            }
+            Assert.That(mined, Is.True, "No generated dirt block was mineable.");
             deadline = Time.realtimeSinceStartup + 12f;
             while (Property<int>(navigation, "CompletedUpdateCount") == updateCount && Time.realtimeSinceStartup < deadline)
                 yield return null;
@@ -144,13 +180,83 @@ namespace Railgame.Tests
             yield return null;
 
             Invoke(menu, "Resume");
-            Invoke(menu, "OpenShop");
-            Assert.That(Time.timeScale, Is.Zero);
-            Component shop = Find("Railgame.UI.RailgameShopScreen");
-            Click("Offer1");
-            Assert.That(Property<int>(shop, "Bolts"), Is.EqualTo(4));
-            Invoke(menu, "Resume");
             Assert.That(Time.timeScale, Is.EqualTo(1f));
+        }
+
+        [UnityTest]
+        public IEnumerator EveryCuratedSeasonVariantGeneratesExpectedMap()
+        {
+            Time.timeScale = 1f;
+            Type generatorType = FindType("Railgame.Map.ProceduralMapGenerator");
+            foreach (string sceneName in new[] { "Map_Procedural_Spring", "Map_Procedural_Summer" })
+            for (int index = 0; index < 5; index++)
+            {
+                PrepareCampaign(sceneName.EndsWith("Spring", StringComparison.Ordinal));
+                InvokeStatic(generatorType, "SelectVariant", index);
+                SceneManager.LoadScene(sceneName);
+                yield return null;
+
+                Component generator = Find("Railgame.Map.ProceduralMapGenerator");
+                AssertCuratedVariant(generator, index);
+                Assert.That(Property<int>(generator, "GeneratedTreeCount"), Is.EqualTo(96));
+                Assert.That(Property<int>(generator, "GeneratedIronCount"), Is.EqualTo(96));
+                Assert.That(Property<int>(generator, "GeneratedResourceClusterCount"), Is.EqualTo(24));
+                Assert.That(Property<int>(generator, "GeneratedEnemySpawnMarkerCount"), Is.EqualTo(8));
+                Assert.That((bool)Invoke(generator, "HasCompleteMovementPath"), Is.True);
+                Assert.That((bool)Invoke(generator, "HasRailPathAfterMining"), Is.True);
+            }
+            InvokeStatic(generatorType, "SelectVariant", 0);
+        }
+
+        [UnityTest]
+        public IEnumerator RestartKeepsCuratedVariant()
+        {
+            Time.timeScale = 1f;
+            Type generatorType = FindType("Railgame.Map.ProceduralMapGenerator");
+            Object session = PrepareCampaign(true);
+            int selectedIndex = Property<int>(session, "SpringVariantIndex");
+            InvokeStatic(generatorType, "SelectVariant", selectedIndex);
+            SceneManager.LoadScene("Map_Procedural_Spring");
+            yield return null;
+
+            Component before = Find("Railgame.Map.ProceduralMapGenerator");
+            int seed = Property<int>(before, "WorldSeed");
+            string hash = Property<string>(before, "LastLayoutHash");
+            Component menu = Find("Railgame.UI.RailgameGameMenuController");
+            Invoke(menu, "Restart");
+            yield return null;
+            yield return null;
+
+            Component after = Find("Railgame.Map.ProceduralMapGenerator");
+            Assert.That(StaticProperty<int>(generatorType, "SelectedVariantIndex"), Is.EqualTo(selectedIndex));
+            Assert.That(Property<int>(after, "WorldSeed"), Is.EqualTo(seed));
+            Assert.That(Property<string>(after, "LastLayoutHash"), Is.EqualTo(hash));
+            InvokeStatic(generatorType, "SelectVariant", 0);
+        }
+
+        private static void AssertCuratedVariant(Component generator, int index)
+        {
+            Object profile = Property<Object>(generator, "Profile");
+            object variant = profile.GetType().GetMethod("GetCuratedVariant")?.Invoke(profile, new object[] { index });
+            Assert.That(variant, Is.Not.Null);
+            int expectedSeed = (int)variant.GetType().GetProperty("Seed")?.GetValue(variant);
+            string expectedHash = (string)variant.GetType().GetProperty("ExpectedLayoutHash")?.GetValue(variant);
+            Assert.That(Property<int>(generator, "WorldSeed"), Is.EqualTo(expectedSeed));
+            Assert.That(Property<string>(generator, "LastLayoutHash"), Is.EqualTo(expectedHash));
+        }
+
+        private static Object PrepareCampaign(bool spring)
+        {
+            Object session = Resources.Load("RailgameCampaignSession");
+            Assert.That(session, Is.Not.Null, "Campaign session resource missing.");
+            Invoke(session, "ResetToLobby");
+            Invoke(session, "StartNewRun");
+            if (spring)
+                return session;
+            Invoke(session, "MarkStageLoaded");
+            Invoke(session, "CompleteStage");
+            Invoke(session, "ContinueFromShop");
+            return session;
         }
 
         private static Type FindType(string name)
@@ -184,9 +290,19 @@ namespace Railgame.Tests
             target.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.Invoke(target, args);
 
+        private static object Invoke(Object target, string method, params object[] args) =>
+            target.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.Invoke(target, args);
+
         private static T Property<T>(Object target, string name) =>
             (T)target.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 ?.GetValue(target);
+
+        private static T StaticProperty<T>(Type type, string name) =>
+            (T)type.GetProperty(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(null);
+
+        private static object InvokeStatic(Type type, string method, params object[] args) =>
+            type.GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)?.Invoke(null, args);
 
         private static void Field(Object target, string name, object value) =>
             target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(target, value);

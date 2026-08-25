@@ -12,6 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3a676ccd67b0614db354899b4871389, type: 3}
   m_Name: MapGenerationProfile_Summer
   m_EditorClassIdentifier: Assembly-CSharp::Railgame.Map.MapGenerationProfile
+  curatedVariants:
+  - seed: 20260000
+    expectedLayoutHash: 073BDD4C
+  - seed: 20260001
+    expectedLayoutHash: 38AEE3B5
+  - seed: 20260002
+    expectedLayoutHash: 26959A85
+  - seed: 20260003
+    expectedLayoutHash: 8621DDB1
+  - seed: 20260004
+    expectedLayoutHash: F1E4506E
   groundChunkPrefab: {fileID: 2633765737978802846, guid: 1cdedbf45b8e08b4785a02394f1aaea9, type: 3}
   groundCellPrefab: {fileID: 5572461889656462251, guid: bd13fe2a3c39638408b45920c934988c, type: 3}
   dirtPrefab: {fileID: 8626841007931108869, guid: 3ec1360d76116ff4985912442e13a80a, type: 3}
@@ -26,8 +37,8 @@ MonoBehaviour:
   ironPrefab: {fileID: 4616430238710469055, guid: 52d019fe809e5ac4bb7493afe3aea02b, type: 3}
   railPrefab: {fileID: 0}
   enemyPrefab: {fileID: 0}
-  treeCount: 12
-  ironCount: 12
+  treeCount: 24
+  ironCount: 24
   waterCellCount: 12
   hillResourceChance: 0.4
   riverWidth: 3

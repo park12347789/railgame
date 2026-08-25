@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Railgame.Map
@@ -5,6 +7,21 @@ namespace Railgame.Map
     [CreateAssetMenu(menuName = "Railgame/Map Generation Profile", fileName = "MapGenerationProfile")]
     public sealed class MapGenerationProfile : ScriptableObject
     {
+        public const int RequiredCuratedVariantCount = 5;
+
+        [Serializable]
+        public sealed class CuratedMapVariant
+        {
+            [SerializeField] private int seed;
+            [SerializeField] private string expectedLayoutHash;
+
+            public int Seed => seed;
+            public string ExpectedLayoutHash => expectedLayoutHash;
+        }
+
+        [Header("Approved map variants")]
+        [SerializeField] private CuratedMapVariant[] curatedVariants = new CuratedMapVariant[RequiredCuratedVariantCount];
+
         [Header("Core map prefabs")]
         [SerializeField] private GameObject groundChunkPrefab;
         [SerializeField] private GameObject groundCellPrefab;
@@ -28,8 +45,8 @@ namespace Railgame.Map
         [SerializeField] private GameObject enemyPrefab;
 
         [Header("Per 32m leg")]
-        [Min(1)] [SerializeField] private int treeCount = 12;
-        [Min(1)] [SerializeField] private int ironCount = 12;
+        [Min(1)] [SerializeField] private int treeCount = 24;
+        [Min(1)] [SerializeField] private int ironCount = 24;
         [Min(6)] [Tooltip("Minimum count. Generator rounds up to complete 2x3 patches.")]
         [SerializeField] private int waterCellCount = 12;
         [Range(0f, 1f)] [SerializeField] private float hillResourceChance = 0.3f;
@@ -68,5 +85,35 @@ namespace Railgame.Map
         public int DirtBaseCount => dirtBaseCount;
         public int DirtIncreasePerLeg => dirtIncreasePerLeg;
         public float ResourceSideBias => resourceSideBias;
+        public int CuratedVariantCount => curatedVariants?.Length ?? 0;
+
+        public CuratedMapVariant GetCuratedVariant(int index)
+        {
+            ValidateCuratedVariants();
+            if (index < 0 || index >= curatedVariants.Length)
+                throw new ArgumentOutOfRangeException(nameof(index), index, "Curated map variant index must be 0-4.");
+            return curatedVariants[index];
+        }
+
+        public void ValidateCuratedVariants()
+        {
+            if (curatedVariants == null || curatedVariants.Length != RequiredCuratedVariantCount)
+                throw new InvalidOperationException($"Map profile requires exactly {RequiredCuratedVariantCount} curated variants.");
+
+            HashSet<int> seeds = new();
+            HashSet<string> hashes = new(StringComparer.Ordinal);
+            for (int index = 0; index < curatedVariants.Length; index++)
+            {
+                CuratedMapVariant variant = curatedVariants[index];
+                if (variant == null)
+                    throw new InvalidOperationException($"Curated map variant {index} is missing.");
+                if (string.IsNullOrWhiteSpace(variant.ExpectedLayoutHash))
+                    throw new InvalidOperationException($"Curated map variant {index} has no expected layout hash.");
+                if (!seeds.Add(variant.Seed))
+                    throw new InvalidOperationException($"Duplicate curated map seed: {variant.Seed}.");
+                if (!hashes.Add(variant.ExpectedLayoutHash))
+                    throw new InvalidOperationException($"Duplicate curated map layout hash: {variant.ExpectedLayoutHash}.");
+            }
+        }
     }
 }

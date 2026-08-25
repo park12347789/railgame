@@ -1,8 +1,10 @@
 using System;
 using System.IO;
 using System.Linq;
+using Railgame.Campaign;
 using Railgame.Enemy;
 using Railgame.Map;
+using Railgame.Shop;
 using Railgame.UI;
 using Unity.AI.Navigation;
 using UnityEditor;
@@ -22,7 +24,7 @@ namespace Railgame.Editor
         public const string LobbyScenePath = "Assets/00.main/UI/Scenes/Railgame_Lobby.unity";
         public const string GameplayUiPrefabPath = "Assets/00.main/UI/Prefabs/PF_CasualGameplayUI.prefab";
         private const string SettingsPrefabPath = "Assets/00.main/UI/Prefabs/PF_SettingsPanel.prefab";
-        private const string ShopPrefabPath = "Assets/00.main/UI/Prefabs/PF_ShopScreen.prefab";
+        public const string CampaignSessionPath = "Assets/00.main/Campaign/Resources/RailgameCampaignSession.asset";
         private static readonly Color Ink = new(0.12f, 0.14f, 0.18f, 1f);
         private static readonly Color Cream = new(1f, 0.96f, 0.82f, 1f);
         private static readonly Color Green = new(0.45f, 0.72f, 0.31f, 1f);
@@ -39,12 +41,14 @@ namespace Railgame.Editor
         {
             EnsureFolder("Assets/00.main/UI/Scenes");
             EnsureFolder("Assets/00.main/UI/Prefabs");
+            EnsureFolder("Assets/00.main/Campaign");
+            EnsureFolder("Assets/00.main/Campaign/Resources");
+            CreateCampaignSession();
             CreateSettingsPrefab();
-            CreateShopPrefab();
             CreateGameplayUiPrefab();
         }
 
-        public static void AddGameplayFoundation(Transform sceneRoot)
+        public static Text AddGameplayFoundation(Transform sceneRoot)
         {
             GameObject uiPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(GameplayUiPrefabPath);
             Require(uiPrefab != null, "Casual gameplay UI prefab missing");
@@ -61,6 +65,10 @@ namespace Railgame.Editor
             }
 
             CreateEventSystem(sceneRoot);
+            Text prompt = ui.GetComponentsInChildren<Text>(true)
+                .SingleOrDefault(item => item.name == "InteractionPrompt");
+            Require(prompt != null, "Gameplay interaction prompt missing");
+            return prompt;
         }
 
         public static void BuildLobbyScene()
@@ -90,10 +98,9 @@ namespace Railgame.Editor
             Text subtitle = CreateText("Subtitle", card.transform, "CASUAL VOXEL JOURNEY", 23, new Color(0.25f, 0.40f, 0.31f), FontStyle.Bold);
             SetRect(subtitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -155f), new Vector2(540f, 45f));
 
-            Button spring = CreateButton("SpringButton", card.transform, "SPRING  ·  EASY START", Green, new Vector2(0f, 90f));
-            Button summer = CreateButton("SummerButton", card.transform, "SUMMER  ·  SUNNY RUN", Yellow, new Vector2(0f, -5f));
-            Button settings = CreateButton("SettingsButton", card.transform, "OPTIONS", new Color(0.39f, 0.62f, 0.72f), new Vector2(0f, -100f));
-            Button quit = CreateButton("QuitButton", card.transform, "QUIT", Coral, new Vector2(0f, -195f));
+            Button start = CreateButton("StartButton", card.transform, "START  ·  SPRING → SUMMER", Green, new Vector2(0f, 70f));
+            Button settings = CreateButton("SettingsButton", card.transform, "OPTIONS", new Color(0.39f, 0.62f, 0.72f), new Vector2(0f, -40f));
+            Button quit = CreateButton("QuitButton", card.transform, "QUIT", Coral, new Vector2(0f, -150f));
 
             GameObject settingsPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SettingsPrefabPath);
             GameObject settingsInstance = (GameObject)PrefabUtility.InstantiatePrefab(settingsPrefab, canvasObject.transform);
@@ -102,11 +109,11 @@ namespace Railgame.Editor
 
             RailgameLobbyController controller = canvasObject.AddComponent<RailgameLobbyController>();
             SerializedObject data = new(controller);
-            data.FindProperty("springButton").objectReferenceValue = spring;
-            data.FindProperty("summerButton").objectReferenceValue = summer;
+            data.FindProperty("startButton").objectReferenceValue = start;
             data.FindProperty("settingsButton").objectReferenceValue = settings;
             data.FindProperty("quitButton").objectReferenceValue = quit;
             data.FindProperty("settingsPanel").objectReferenceValue = settingsInstance.GetComponent<RailgameSettingsPanel>();
+            data.FindProperty("campaignSession").objectReferenceValue = LoadCampaignSession();
             data.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -121,26 +128,23 @@ namespace Railgame.Editor
             Scene lobby = EditorSceneManager.OpenScene(LobbyScenePath, OpenSceneMode.Single);
             Require(Object.FindAnyObjectByType<RailgameLobbyController>() != null, "Lobby controller missing");
             Require(Object.FindAnyObjectByType<RailgameSettingsPanel>(FindObjectsInactive.Include) != null, "Lobby settings missing");
-            Require(Object.FindObjectsByType<Button>(FindObjectsInactive.Include).Length >= 7,
+            Require(Object.FindObjectsByType<Button>(FindObjectsInactive.Include).Length >= 6,
                 "Lobby buttons incomplete");
 
             ValidateGameplayScene("Assets/00.main/Map/Scenes/Map_Procedural_Spring.unity", "Spring");
             ValidateGameplayScene("Assets/00.main/Map/Scenes/Map_Procedural_Summer.unity", "Summer");
-            Debug.Log("RAILGAME_CASUAL_FOUNDATION_OK lobby=1 settings=1 pause=2 shop=2 spawnMarkers=16");
+            Debug.Log("RAILGAME_CASUAL_FOUNDATION_OK lobby=1 settings=1 pause=2 physicalShop=1 bolts=6 spawnMarkers=16");
         }
 
         public static void Capture()
         {
-            CaptureScene(LobbyScenePath, Path.GetFullPath("Temp/casual-lobby.png"), false);
-            CaptureScene("Assets/00.main/Map/Scenes/Map_Procedural_Spring.unity", Path.GetFullPath("Temp/casual-shop.png"), true);
+            CaptureScene(LobbyScenePath, Path.GetFullPath("Temp/casual-lobby.png"));
             Debug.Log("RAILGAME_CASUAL_CAPTURES_OK");
         }
 
-        private static void CaptureScene(string scenePath, string outputPath, bool showShop)
+        private static void CaptureScene(string scenePath, string outputPath)
         {
             EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
-            if (showShop)
-                Object.FindAnyObjectByType<RailgameShopScreen>(FindObjectsInactive.Include).gameObject.SetActive(true);
             Camera camera = Camera.main;
             Require(camera != null, $"Capture camera missing: {scenePath}");
             RenderTexture target = new(1280, 720, 24, RenderTextureFormat.ARGB32);
@@ -170,9 +174,16 @@ namespace Railgame.Editor
                 $"{season} enemy spawn marker count mismatch");
             Require(Object.FindAnyObjectByType<RailgameGameMenuController>(FindObjectsInactive.Include) != null,
                 $"{season} game menu missing");
-            Require(Object.FindAnyObjectByType<RailgameShopScreen>(FindObjectsInactive.Include) != null,
-                $"{season} shop screen missing");
-
+            Require(Object.FindAnyObjectByType<RailgameStageFlowController>(FindObjectsInactive.Include) != null,
+                $"{season} campaign stage flow missing");
+            Require(Object.FindObjectsByType<RailgameBoltPickup>(FindObjectsInactive.Include).Length == 3,
+                $"{season} bolt pickup count mismatch");
+            Require(Object.FindAnyObjectByType<RailgameCampaignEconomyBridge>(FindObjectsInactive.Include) != null,
+                $"{season} campaign bolt bank missing");
+            Require(Object.FindAnyObjectByType<RailgameShopScreen>(FindObjectsInactive.Include) == null,
+                $"{season} legacy purchase screen still present");
+            int checkoutCount = Object.FindObjectsByType<RailgameShopCheckout>(FindObjectsInactive.Include).Length;
+            Require(checkoutCount == (season == "Spring" ? 1 : 0), $"{season} physical shop count mismatch");
             generator.GenerateNow();
             markers = Object.FindObjectsByType<EnemySpawnMarker>(FindObjectsInactive.Include);
             EnemySpawnMarker marker = markers.OrderBy(item => item.LegIndex).ThenByDescending(item => item.LeftSide).First();
@@ -241,46 +252,12 @@ namespace Railgame.Editor
             SavePrefab(root, SettingsPrefabPath);
         }
 
-        private static void CreateShopPrefab()
-        {
-            GameObject root = CreatePanelRoot("PF_ShopScreen", new Color(0.05f, 0.08f, 0.10f, 0.86f));
-            Image card = CreateImage("Card", root.transform, Cream);
-            SetRect(card.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1050f, 650f));
-            Text title = CreateText("Title", card.transform, "TRACKSIDE SHOP", 52, Ink, FontStyle.Bold);
-            SetRect(title.rectTransform, new Vector2(0.5f, 1f), new Vector2(-145f, -72f), new Vector2(650f, 70f));
-            Text wallet = CreateText("Wallet", card.transform, "BOLTS  6", 30, Coral, FontStyle.Bold);
-            SetRect(wallet.rectTransform, new Vector2(1f, 1f), new Vector2(-180f, -75f), new Vector2(260f, 60f));
-
-            Button[] offers = new Button[3];
-            Text[] labels = new Text[3];
-            Color[] colors = { Green, Yellow, new Color(0.42f, 0.68f, 0.82f) };
-            for (int index = 0; index < 3; index++)
-            {
-                offers[index] = CreateButton($"Offer{index + 1}", card.transform, $"TEST ITEM {index + 1}\n{index + 2} BOLTS",
-                    colors[index], new Vector2(-330f + index * 330f, -20f), new Vector2(280f, 280f));
-                labels[index] = offers[index].GetComponentInChildren<Text>();
-            }
-            Text note = CreateText("Note", card.transform, "Dummy stock · team products connect later", 20, new Color(0.35f, 0.35f, 0.35f), FontStyle.Italic);
-            SetRect(note.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 105f), new Vector2(800f, 42f));
-            Button close = CreateButton("CloseButton", card.transform, "BACK TO MAP", Coral, new Vector2(0f, -260f), new Vector2(310f, 68f));
-
-            RailgameShopScreen controller = root.AddComponent<RailgameShopScreen>();
-            SerializedObject data = new(controller);
-            data.FindProperty("walletText").objectReferenceValue = wallet;
-            AssignArray(data.FindProperty("offerButtons"), offers);
-            AssignArray(data.FindProperty("offerTexts"), labels);
-            data.FindProperty("closeButton").objectReferenceValue = close;
-            data.ApplyModifiedPropertiesWithoutUndo();
-            SavePrefab(root, ShopPrefabPath);
-        }
-
         private static void CreateGameplayUiPrefab()
         {
             GameObject root = CreateCanvas("PF_CasualGameplayUI");
             root.GetComponent<Canvas>().sortingOrder = 100;
-            Button shopButton = CreateButton("OpenShopButton", root.transform, "SHOP TEST", Yellow, new Vector2(-135f, -70f), new Vector2(220f, 64f));
-            RectTransform shopRect = (RectTransform)shopButton.transform;
-            shopRect.anchorMin = shopRect.anchorMax = new Vector2(1f, 1f);
+            Text interactionPrompt = CreateText("InteractionPrompt", root.transform, string.Empty, 28, Cream, FontStyle.Bold);
+            SetRect(interactionPrompt.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 90f), new Vector2(720f, 60f));
 
             GameObject pause = CreatePanelRoot("PausePanel", new Color(0.05f, 0.08f, 0.10f, 0.82f));
             pause.transform.SetParent(root.transform, false);
@@ -298,25 +275,21 @@ namespace Railgame.Editor
             GameObject settingsPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SettingsPrefabPath);
             GameObject settingsPanel = (GameObject)PrefabUtility.InstantiatePrefab(settingsPrefab, root.transform);
             settingsPanel.name = "SettingsPanel";
-            GameObject shopPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(ShopPrefabPath);
-            GameObject shopPanel = (GameObject)PrefabUtility.InstantiatePrefab(shopPrefab, root.transform);
-            shopPanel.name = "ShopScreen";
 
             RailgameGameMenuController controller = root.AddComponent<RailgameGameMenuController>();
             SerializedObject data = new(controller);
             data.FindProperty("pausePanel").objectReferenceValue = pause;
             data.FindProperty("settingsPanel").objectReferenceValue = settingsPanel.GetComponent<RailgameSettingsPanel>();
-            data.FindProperty("shopScreen").objectReferenceValue = shopPanel.GetComponent<RailgameShopScreen>();
             data.FindProperty("resumeButton").objectReferenceValue = resume;
             data.FindProperty("settingsButton").objectReferenceValue = settings;
             data.FindProperty("restartButton").objectReferenceValue = restart;
             data.FindProperty("lobbyButton").objectReferenceValue = lobby;
             data.FindProperty("quitButton").objectReferenceValue = quit;
-            data.FindProperty("openShopButton").objectReferenceValue = shopButton;
+            data.FindProperty("campaignSession").objectReferenceValue = LoadCampaignSession();
             data.ApplyModifiedPropertiesWithoutUndo();
             pause.SetActive(false);
             settingsPanel.SetActive(false);
-            shopPanel.SetActive(false);
+            interactionPrompt.gameObject.SetActive(false);
             SavePrefab(root, GameplayUiPrefabPath);
         }
 
@@ -412,6 +385,22 @@ namespace Railgame.Editor
             mask = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UIMask.psd")
         };
 
+        private static void CreateCampaignSession()
+        {
+            if (AssetDatabase.LoadAssetAtPath<RailgameCampaignSession>(CampaignSessionPath) != null)
+                return;
+            RailgameCampaignSession session = ScriptableObject.CreateInstance<RailgameCampaignSession>();
+            AssetDatabase.CreateAsset(session, CampaignSessionPath);
+        }
+
+        private static RailgameCampaignSession LoadCampaignSession()
+        {
+            RailgameCampaignSession session = AssetDatabase.LoadAssetAtPath<RailgameCampaignSession>(CampaignSessionPath);
+            if (session == null)
+                throw new InvalidOperationException($"Campaign session missing: {CampaignSessionPath}");
+            return session;
+        }
+
         private static void CreateEventSystem(Transform parent)
         {
             GameObject item = new("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
@@ -465,13 +454,6 @@ namespace Railgame.Editor
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
             rect.offsetMin = rect.offsetMax = Vector2.zero;
-        }
-
-        private static void AssignArray(SerializedProperty property, Object[] values)
-        {
-            property.arraySize = values.Length;
-            for (int index = 0; index < values.Length; index++)
-                property.GetArrayElementAtIndex(index).objectReferenceValue = values[index];
         }
 
         private static void EnsureFolder(string path)

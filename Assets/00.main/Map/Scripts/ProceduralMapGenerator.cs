@@ -23,6 +23,8 @@ namespace Railgame.Map
             Vector2Int.left, Vector2Int.right, Vector2Int.down, Vector2Int.up
         };
 
+        private static int selectedVariantIndex;
+
         [SerializeField] private MapGenerationProfile profile;
         [SerializeField] private RuntimeNavigationController navigation;
         [SerializeField] private int worldSeed = 20260818;
@@ -46,6 +48,20 @@ namespace Railgame.Map
         public int GeneratedEnemySpawnMarkerCount { get; private set; }
         public int WorldSeed => worldSeed;
         public MapGenerationProfile Profile => profile;
+        public static int SelectedVariantIndex => selectedVariantIndex;
+
+        public static void SelectRandomVariant()
+        {
+            SelectVariant(UnityEngine.Random.Range(0, MapGenerationProfile.RequiredCuratedVariantCount));
+        }
+
+        public static void SelectVariant(int index)
+        {
+            if (index < 0 || index >= MapGenerationProfile.RequiredCuratedVariantCount)
+                throw new ArgumentOutOfRangeException(nameof(index), index, "Curated map variant index must be 0-4.");
+            selectedVariantIndex = index;
+            Debug.Log($"RAILGAME_MAP_VARIANT_SELECTED index={index}");
+        }
 
         private void Start()
         {
@@ -57,9 +73,26 @@ namespace Railgame.Map
         public void GenerateNow()
         {
             RequireProfile();
+            MapGenerationProfile.CuratedMapVariant variant = profile.GetCuratedVariant(selectedVariantIndex);
+            GenerateSeed(variant.Seed);
+            if (!string.Equals(LastLayoutHash, variant.ExpectedLayoutHash, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Curated map hash mismatch. seed={variant.Seed} expected={variant.ExpectedLayoutHash} actual={LastLayoutHash}");
+        }
+
+#if UNITY_EDITOR
+        public void GenerateForValidation(int seed)
+        {
+            GenerateSeed(seed);
+        }
+#endif
+
+        private void GenerateSeed(int seed)
+        {
+            RequireProfile();
+            worldSeed = seed;
             ClearGenerated();
-            GenerateLogicalLayoutForValidation(worldSeed);
-            BuildHierarchy(new Random(worldSeed ^ 0x51F15EED));
+            GenerateLogicalLayoutForValidation(seed);
+            BuildHierarchy(new Random(seed ^ 0x51F15EED));
 
             if (buildNavMeshAfterGenerate && navigation != null)
                 navigation.BuildInitialNavMesh();
