@@ -1,12 +1,12 @@
 using UnityEngine;
 
-namespace Game.Enemy.Data
+namespace RailGame.Enemy.Data
 {
     /// <summary>
+    /// 적의 "기본" 스탯 템플릿.
     /// 웨이브 스케일링, 디버프 등으로 변하는 값은 여기 두지 않는다.
     /// 이 SO는 여러 적 인스턴스가 공유하는 읽기 전용 데이터로만 사용한다.
     /// </summary>
- 
     [CreateAssetMenu(fileName = "EnemyData_", menuName = "Enemy/Enemy Data", order = 0)]
     public class EnemyDataSO : ScriptableObject
     {
@@ -26,6 +26,10 @@ namespace Game.Enemy.Data
 
         [Min(0f)]
         public float attackRange = 1.5f;
+
+        [Min(0f)]
+        [Tooltip("이 범위 안에 타겟이 들어오면 Idle -> Chase로 전환")]
+        public float detectionRange = 6f;
 
         [Min(0.01f)]
         [Tooltip("공격 1회 후 다음 공격까지 걸리는 시간 (초)")]

@@ -1,15 +1,14 @@
 using System;
-using Game.Enemy.Data;
+using RailGame.Enemy.Data;
 using UnityEngine;
 
-namespace Game.Enemy.Runtime
+namespace RailGame.Enemy.Runtime
 {
     /// <summary>
     /// 실제 전투 중 변하는 적 개별 스탯.
     /// EnemyDataSO는 여러 적이 공유하지만, 이 클래스는 적 인스턴스마다 하나씩 생성해서 소유한다.
     /// 웨이브 스케일링, 버프/디버프는 전부 이 클래스의 값을 통해서만 적용한다.
     /// </summary>
- 
     [Serializable]
     public class EnemyRuntimeStats
     {
@@ -19,6 +18,7 @@ namespace Game.Enemy.Runtime
         public float AttackRange { get; private set; }
         public float AttackCooldown { get; private set; }
         public float MoveSpeed { get; private set; }
+        public float DetectionRange { get; private set; }
 
         public bool IsDead => CurrentHealth <= 0f;
 
@@ -43,6 +43,7 @@ namespace Game.Enemy.Runtime
             AttackRange = data.attackRange;
             AttackCooldown = data.attackCooldown;
             MoveSpeed = data.moveSpeed;
+            DetectionRange = data.detectionRange;
         }
 
         public void TakeDamage(float amount)
