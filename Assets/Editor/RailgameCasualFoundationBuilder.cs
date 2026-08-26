@@ -37,6 +37,15 @@ namespace Railgame.Editor
             RailgameProceduralMapBuilder.Build();
         }
 
+        [MenuItem("Railgame/Rebuild Main HUD Prefab")]
+        public static void RebuildMainHudPrefab()
+        {
+            EnsureFolder("Assets/00.main/UI/Prefabs");
+            CreateGameplayUiPrefab();
+            AssetDatabase.SaveAssets();
+            Debug.Log("RAILGAME_MAIN_HUD_PREFAB_OK");
+        }
+
         public static void BuildSharedAssets()
         {
             EnsureFolder("Assets/00.main/UI/Scenes");
@@ -174,6 +183,10 @@ namespace Railgame.Editor
                 $"{season} enemy spawn marker count mismatch");
             Require(Object.FindAnyObjectByType<RailgameGameMenuController>(FindObjectsInactive.Include) != null,
                 $"{season} game menu missing");
+            Require(Object.FindAnyObjectByType<RailgameHudPresenter>(FindObjectsInactive.Include) != null,
+                $"{season} main HUD presenter missing");
+            Require(Object.FindAnyObjectByType<RailgameHudRuntimeBridge>(FindObjectsInactive.Include) != null,
+                $"{season} main HUD runtime bridge missing");
             Require(Object.FindAnyObjectByType<RailgameStageFlowController>(FindObjectsInactive.Include) != null,
                 $"{season} campaign stage flow missing");
             Require(Object.FindObjectsByType<RailgameBoltPickup>(FindObjectsInactive.Include).Length == 3,
@@ -256,8 +269,68 @@ namespace Railgame.Editor
         {
             GameObject root = CreateCanvas("PF_CasualGameplayUI");
             root.GetComponent<Canvas>().sortingOrder = 100;
-            Text interactionPrompt = CreateText("InteractionPrompt", root.transform, string.Empty, 28, Cream, FontStyle.Bold);
-            SetRect(interactionPrompt.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 90f), new Vector2(720f, 60f));
+
+            Image routePlate = CreateImage("RoutePlate", root.transform, new Color(0.035f, 0.067f, 0.11f, 0.88f));
+            SetRect(routePlate.rectTransform, new Vector2(0f, 1f), new Vector2(250f, -115f), new Vector2(420f, 150f));
+            StyleHudPlate(routePlate, Yellow);
+            CreateHudAccent(routePlate.transform, Yellow, false);
+            Text route = CreateText("RouteText", routePlate.transform, "FIELD STATION\nNEXT  ROUTE CHECK", 24, Cream, FontStyle.Bold);
+            SetRect(route.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(14f, 0f), new Vector2(360f, 110f));
+            route.alignment = TextAnchor.MiddleLeft;
+
+            Image boltPlate = CreateImage("BoltPlate", root.transform, new Color(0.035f, 0.067f, 0.11f, 0.88f));
+            SetRect(boltPlate.rectTransform, new Vector2(1f, 1f), new Vector2(-210f, -85f), new Vector2(320f, 90f));
+            StyleHudPlate(boltPlate, Green);
+            CreateHudAccent(boltPlate.transform, Green, true);
+            Text bolts = CreateText("BoltText", boltPlate.transform, "BOLTS  00", 28, new Color(0.48f, 0.85f, 0.64f), FontStyle.Bold);
+            SetRect(bolts.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(-12f, 0f), new Vector2(260f, 58f));
+            bolts.alignment = TextAnchor.MiddleRight;
+
+            Image objectivePlate = CreateImage("ObjectivePlate", root.transform, new Color(0.035f, 0.067f, 0.11f, 0.84f));
+            SetRect(objectivePlate.rectTransform, new Vector2(0f, 0f), new Vector2(285f, 125f), new Vector2(490f, 140f));
+            StyleHudPlate(objectivePlate, Cream);
+            CreateHudAccent(objectivePlate.transform, Yellow, false);
+            Text objective = CreateText("ObjectiveText", objectivePlate.transform, "OBJECTIVE\nPREPARE THE TRAIN", 23, Cream, FontStyle.Bold);
+            SetRect(objective.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(14f, 0f), new Vector2(430f, 100f));
+            objective.alignment = TextAnchor.MiddleLeft;
+
+            Image cargoPlate = CreateImage("CargoPlate", root.transform, new Color(0.035f, 0.067f, 0.11f, 0.84f));
+            SetRect(cargoPlate.rectTransform, new Vector2(1f, 0f), new Vector2(-260f, 125f), new Vector2(440f, 140f));
+            StyleHudPlate(cargoPlate, Cream);
+            CreateHudAccent(cargoPlate.transform, Green, true);
+            Text cargo = CreateText("CargoText", cargoPlate.transform, "HANDS  EMPTY", 23, Cream, FontStyle.Bold);
+            SetRect(cargo.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(-14f, 0f), new Vector2(380f, 100f));
+            cargo.alignment = TextAnchor.MiddleRight;
+
+            Image interactionPlate = CreateImage("InteractionPlate", root.transform, new Color(0.035f, 0.067f, 0.11f, 0.94f));
+            SetRect(interactionPlate.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 82f), new Vector2(600f, 76f));
+            StyleHudPlate(interactionPlate, Yellow);
+            Text interactionPrompt = CreateText("InteractionPrompt", interactionPlate.transform, string.Empty, 28, Cream, FontStyle.Bold);
+            SetRect(interactionPrompt.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(550f, 58f));
+
+            Image statusPlate = CreateImage("StatusBanner", root.transform, new Color(0.48f, 0.85f, 0.64f, 0.96f));
+            SetRect(statusPlate.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -82f), new Vector2(620f, 70f));
+            StyleHudPlate(statusPlate, Cream);
+            Text status = CreateText("StatusText", statusPlate.transform, string.Empty, 23, Ink, FontStyle.Bold);
+            SetRect(status.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(550f, 48f));
+
+            RailgameHudPresenter hud = root.AddComponent<RailgameHudPresenter>();
+            SerializedObject hudData = new(hud);
+            hudData.FindProperty("routeText").objectReferenceValue = route;
+            hudData.FindProperty("objectiveText").objectReferenceValue = objective;
+            hudData.FindProperty("boltText").objectReferenceValue = bolts;
+            hudData.FindProperty("cargoText").objectReferenceValue = cargo;
+            hudData.FindProperty("interactionText").objectReferenceValue = interactionPrompt;
+            hudData.FindProperty("interactionRoot").objectReferenceValue = interactionPlate.gameObject;
+            hudData.FindProperty("statusText").objectReferenceValue = status;
+            hudData.FindProperty("statusRoot").objectReferenceValue = statusPlate.gameObject;
+            hudData.ApplyModifiedPropertiesWithoutUndo();
+
+            RailgameHudRuntimeBridge bridge = root.AddComponent<RailgameHudRuntimeBridge>();
+            SerializedObject bridgeData = new(bridge);
+            bridgeData.FindProperty("presenter").objectReferenceValue = hud;
+            bridgeData.FindProperty("campaignSession").objectReferenceValue = LoadCampaignSession();
+            bridgeData.ApplyModifiedPropertiesWithoutUndo();
 
             GameObject pause = CreatePanelRoot("PausePanel", new Color(0.05f, 0.08f, 0.10f, 0.82f));
             pause.transform.SetParent(root.transform, false);
@@ -289,8 +362,26 @@ namespace Railgame.Editor
             data.ApplyModifiedPropertiesWithoutUndo();
             pause.SetActive(false);
             settingsPanel.SetActive(false);
-            interactionPrompt.gameObject.SetActive(false);
+            interactionPlate.gameObject.SetActive(false);
+            statusPlate.gameObject.SetActive(false);
             SavePrefab(root, GameplayUiPrefabPath);
+        }
+
+        private static void StyleHudPlate(Image plate, Color edgeColor)
+        {
+            plate.raycastTarget = false;
+            Outline edge = plate.gameObject.AddComponent<Outline>();
+            edge.effectColor = new Color(edgeColor.r, edgeColor.g, edgeColor.b, 0.95f);
+            edge.effectDistance = new Vector2(3f, -3f);
+            edge.useGraphicAlpha = true;
+        }
+
+        private static void CreateHudAccent(Transform parent, Color color, bool right)
+        {
+            Image accent = CreateImage("SignalAccent", parent, color);
+            SetRect(accent.rectTransform, new Vector2(right ? 1f : 0f, 0.5f),
+                new Vector2(right ? -9f : 9f, 0f), new Vector2(8f, 70f));
+            accent.raycastTarget = false;
         }
 
         private static GameObject CreateCanvas(string name)
@@ -333,6 +424,7 @@ namespace Railgame.Editor
             text.fontStyle = style;
             text.alignment = TextAnchor.MiddleCenter;
             text.color = color;
+            text.raycastTarget = false;
             return text;
         }
 

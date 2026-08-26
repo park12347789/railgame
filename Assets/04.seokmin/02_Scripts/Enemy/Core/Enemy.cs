@@ -17,6 +17,7 @@ namespace RailGame.Enemy
 
         public EnemyRuntimeStats Stats { get; private set; }
         public EnemyStateMachine StateMachineInstance { get; private set; }
+        public Transform Target => target;
 
         private EnemyStateContext stateContext;
 
@@ -36,12 +37,7 @@ namespace RailGame.Enemy
             if (target == null)
             {
                 var player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null) target = player.transform;
-            }
-
-            if (stateContext != null)
-            {
-                stateContext.Target = target;
+                if (player != null) SetTarget(player.transform);
             }
         }
 
@@ -87,6 +83,14 @@ namespace RailGame.Enemy
         public void TakeDamage(float amount)
         {
             Stats?.TakeDamage(amount);
+        }
+
+        // 기본 스폰 흐름은 Player를 넘기지만, 특수 웨이브나 향후 규칙을 위해 타깃 종류를 제한하지 않는다.
+        public void SetTarget(Transform newTarget)
+        {
+            target = newTarget;
+            if (stateContext != null)
+                stateContext.Target = newTarget;
         }
 
         private void HandleDeath()
