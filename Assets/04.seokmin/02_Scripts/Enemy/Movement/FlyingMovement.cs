@@ -4,6 +4,8 @@ namespace RailGame.Enemy.Movement
 {
     public class FlyingMovement : MonoBehaviour, IEnemyMovement
     {
+        [SerializeField] private float flightHeight = 3f;
+
         private float moveSpeed;
         private Vector3? destination;
 
@@ -14,7 +16,7 @@ namespace RailGame.Enemy.Movement
 
         public void MoveTowards(Vector3 destinationPosition)
         {
-            destination = destinationPosition;
+            destination = destinationPosition + Vector3.up * flightHeight;
         }
 
         public void Stop()

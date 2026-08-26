@@ -9,6 +9,9 @@ namespace RailGame.Enemy.Attack
         private float attackCooldown;
         private float lastAttackTime = -999f;
 
+        public bool IsBusy => false;
+        public bool ManagesOwnEngagement => false;
+
         public void Initialize(float power, float cooldown)
         {
             attackPower = power;

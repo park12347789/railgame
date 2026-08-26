@@ -9,6 +9,9 @@ namespace RailGame.Enemy.Attack
     /// </summary>
     public interface IEnemyAttack
     {
+        bool IsBusy { get; }
+        bool ManagesOwnEngagement { get; }
+
         void Initialize(float attackPower, float attackCooldown);
 
         /// <summary>

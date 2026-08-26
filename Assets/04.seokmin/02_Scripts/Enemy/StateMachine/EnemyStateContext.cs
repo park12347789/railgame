@@ -16,14 +16,21 @@ namespace RailGame.Enemy.StateMachine
         public Transform Target;
         public EnemyRuntimeStats Stats;
 
-        // 실제 구현체는 다음 브랜치에서 GetComponent로 채워짐. 지금은 null일 수 있으므로
-        // 각 상태에서 반드시 null 체크 후 사용한다.
         public IEnemyMovement Movement;
         public IEnemyAttack Attack;
 
         public EnemyStateMachine StateMachine;
 
-        public float DistanceToTarget =>
-            Target == null ? float.MaxValue : Vector3.Distance(Self.position, Target.position);
+        public float DistanceToTarget
+        {
+            get
+            {
+                if (Target == null) return float.MaxValue;
+
+                Vector3 selfFlat = new Vector3(Self.position.x, 0f, Self.position.z);
+                Vector3 targetFlat = new Vector3(Target.position.x, 0f, Target.position.z);
+                return Vector3.Distance(selfFlat, targetFlat);
+            }
+        }
     }
 }
