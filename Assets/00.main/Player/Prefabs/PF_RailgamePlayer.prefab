@@ -13,9 +13,10 @@ GameObject:
   - component: {fileID: 8059481779520351258}
   - component: {fileID: 8001321181879361283}
   - component: {fileID: 8226582834905622120}
+  - component: {fileID: 5637049482857632911}
   m_Layer: 0
   m_Name: PF_RailgamePlayer
-  m_TagString: Untagged
+  m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -110,6 +111,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Railgame.Shop.RailgameCarryHolder
   carryAnchor: {fileID: 1703962748854077165}
+--- !u!114 &5637049482857632911
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2848503895804179365}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5fc70d94611476ea1df28f88a9d2601, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Railgame.Player.RailgamePlayerHealth
+  maxHealth: 100
 --- !u!1 &4174733825565569074
 GameObject:
   m_ObjectHideFlags: 0
