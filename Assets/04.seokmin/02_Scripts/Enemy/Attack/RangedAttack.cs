@@ -26,7 +26,7 @@ namespace RailGame.Enemy.Attack
 
             Vector3 direction = (target.position - firePoint.position).normalized;
             Arrow arrow = Instantiate(arrowPrefab, firePoint.position, Quaternion.LookRotation(direction));
-            arrow.Launch(direction, attackPower);
+            arrow.Launch(direction, attackPower, transform);
 
             return true;
         }

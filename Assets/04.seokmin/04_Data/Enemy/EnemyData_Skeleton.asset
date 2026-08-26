@@ -16,6 +16,7 @@ MonoBehaviour:
   displayName: "\uC2A4\uCF08\uB808\uD1A4"
   maxHealth: 10
   attackPower: 1
-  attackRange: 1.5
+  attackRange: 8
+  detectionRange: 10
   attackCooldown: 1
   moveSpeed: 3.5

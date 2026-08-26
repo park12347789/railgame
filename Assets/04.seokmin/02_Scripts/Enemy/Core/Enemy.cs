@@ -102,5 +102,17 @@ namespace RailGame.Enemy
                 Stats.OnDied -= HandleDeath;
             }
         }
+
+        private void OnDrawGizmosSelected()
+        {
+            float attackRange = Stats != null ? Stats.AttackRange : (enemyData != null ? enemyData.attackRange : 0f);
+            float detectionRange = Stats != null ? Stats.DetectionRange : (enemyData != null ? enemyData.detectionRange : 0f);
+
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(transform.position, detectionRange);
+
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(transform.position, attackRange);
+        }
     }
 }

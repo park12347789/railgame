@@ -8,29 +8,26 @@ namespace RailGame.Enemy.Movement
     {
         private NavMeshAgent agent;
 
-        private void Awake()
-        {
-            agent = GetComponent<NavMeshAgent>();
-        }
+        private NavMeshAgent Agent => agent != null ? agent : (agent = GetComponent<NavMeshAgent>());
 
         public void SetSpeed(float speed)
         {
-            agent.speed = speed;
+            Agent.speed = speed;
         }
 
         public void MoveTowards(Vector3 destination)
         {
-            if (!agent.isOnNavMesh) return;
+            if (!Agent.isOnNavMesh) return;
 
-            agent.isStopped = false;
-            agent.SetDestination(destination);
+            Agent.isStopped = false;
+            Agent.SetDestination(destination);
         }
 
         public void Stop()
         {
-            if (!agent.isOnNavMesh) return;
+            if (!Agent.isOnNavMesh) return;
 
-            agent.isStopped = true;
+            Agent.isStopped = true;
         }
     }
 }
