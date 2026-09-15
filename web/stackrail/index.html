@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f3f1e6"><meta name="description" content="카드를 쌓아 직원을 배치하고 3D 기차를 운행하는 작은 역 운영 게임."><title>STACKRAIL — 이끼역</title><link rel="icon" href="data:,"><link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="app">
+<header class="topbar">
+ <div class="brand"><span class="brand-mark">▥</span><div>STACKRAIL<small>A LITTLE STATION, A BIG JOURNEY</small></div></div>
+ <div class="stats"><div class="stat"><span>영업일</span><strong id="day">01 <em>/ 04</em></strong></div><div class="stat"><span>운영 자금</span><strong id="money">180 <em>G</em></strong></div><div class="stat"><span>역 평판</span><strong id="rep">90<em>%</em></strong></div><div class="stat"><span>만차 출발</span><strong id="served">0 <em>편</em></strong></div></div>
+ <nav class="controls" aria-label="게임 설정"><button class="icon-button" data-action="sound" id="sound" title="소리 켜기" aria-label="소리 켜기">♪</button><button class="icon-button" data-action="help" aria-label="게임 방법">?</button><button class="icon-button" data-action="restart" aria-label="새 게임">↻</button><div class="speed-control"><button data-action="pause" id="pause" aria-label="일시정지">Ⅱ</button><button data-speed="1" class="active">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button></div></nav>
+</header>
+<main class="game-grid">
+ <section class="world-panel" aria-label="3D 이끼역">
+  <div class="scene-title"><span class="eyebrow">MOSSFIELD STATION · 001</span><h1>이끼역<span class="live-dot"></span></h1><p>작은 역에서 시작하는 커다란 여정.</p></div>
+  <div class="mission"><span>환승역 인증 목표</span><strong>750 G <i>+</i> 만차 6편</strong><div class="mission-progress"><b id="goal-money"></b><b id="goal-trains"></b></div><small>4일 안에 두 목표를 동시에 달성하세요.</small></div>
+  <canvas id="world" aria-label="입체 철도역. 드래그로 시점을 회전하고 휠로 확대합니다."></canvas>
+  <div id="scene-label" class="scene-label">이끼역 <span>MOSSFIELD</span></div>
+  <div class="scene-bottom"><span id="clock">06:00 <i>·</i> 맑은 아침</span><div><span class="camera-hint">드래그로 회전 · 휠로 확대</span><button data-action="zoom-in" aria-label="확대">＋</button><button data-action="zoom-out" aria-label="축소">−</button><button data-action="camera" aria-label="시점 초기화">⌖</button></div></div>
+  <div id="pause-label" class="pause-label" hidden>시간 정지 · 카드는 계속 배치할 수 있습니다.</div>
+  <div id="render-error" class="render-error" hidden></div>
+ </section>
+ <aside class="rail-panel panel"><div class="section-head"><h2><span class="tiny-line"></span>운행 관제</h2><span id="queue-count" class="micro">대기 0편</span></div><div id="platforms"></div><div class="schedule"><div class="subheading">다음 도착 <span>시간표</span></div><div id="schedule"></div></div><p class="panel-note">처리 완료 카드는 정차 열차에 자동 적재됩니다.<br>만차가 되면 직접 출발시켜주세요.</p></aside>
+ <section class="table-panel panel"><div class="section-head"><div><span class="eyebrow">YOUR WORKING TABLE</span><h2>카드를 쌓아 역을 운영하세요.</h2></div><span id="selection-label" class="selection-label">직원 + 시설 + 입고 카드</span></div><div class="staff-row"><div><strong>직원 대기실</strong><small>시설의 직원을 여기로 옮겨 회수할 수 있습니다.</small></div><div id="staff" class="staff-yard" data-drop="idle"></div></div><div id="facilities" class="facilities"></div><div class="inventory-heading"><h3>입고 카드 <small>카드 선택 → 시설 클릭 · 또는 드래그</small></h3><span id="storage">창고 11 / 20</span></div><div id="inventory" class="inventory"></div><p class="table-note">직원은 시설에 남아 반복 작업합니다. 입고 카드는 한 번에 최대 6개씩 쌓입니다.</p></section>
+ <aside class="build-panel panel"><div class="section-head"><h2><span class="tiny-line"></span>역을 키워보세요.</h2><span class="micro">건설 · 채용</span></div><div id="upgrades" class="upgrades"></div><div class="event-heading">역장 업무일지 <span id="save-status">자동 저장</span></div><div id="events" class="events" aria-live="polite"></div></aside>
+</main>
+<footer><span><b>STACKRAIL</b> &nbsp; 카드로 만드는 작은 철도역.</span><span>SPACE 일시정지 &nbsp;·&nbsp; 1 / 2 / 3 배속 &nbsp;·&nbsp; 로컬 프로토타입 v0.1</span></footer>
+</div>
+<dialog id="intro" class="modal"><div class="ticket-punch"></div><span class="eyebrow">WELCOME TO MOSSFIELD</span><h2>오늘부터,<br>이 역의 역장입니다.</h2><p>직원과 물자를 카드처럼 쌓아 작업하고,<br>작은 기차들을 제시간에 보내주세요.</p><div class="intro-steps"><div><b>01</b><span><strong>직원을 시설에 배치</strong>직원 카드를 선택한 뒤 발권소나 화물장을 누르세요.</span></div><div><b>02</b><span><strong>입고 카드를 쌓기</strong>승객은 발권소에, 목재·광석은 화물장에 놓으세요.</span></div><div><b>03</b><span><strong>만차 열차를 출발</strong>자동 적재가 끝나면 출발 버튼으로 수익을 받으세요.</span></div></div><div class="goal-ticket">4일 동안 <strong>운영 자금 750 G + 만차 6편</strong>을 달성하세요.</div><button class="primary large" data-action="start" id="start-button">첫 영업 시작하기 <span>→</span></button><small class="modal-foot">언제든 일시정지하고 카드를 배치할 수 있습니다.</small></dialog>
+<dialog id="help" class="modal"><span class="eyebrow">STATION HANDBOOK</span><h2>역장 수첩</h2><div class="help-recipes"><p><strong>발권소</strong>직원 + 승객 → 발권 승객</p><p><strong>화물장</strong>직원 + 목재 / 광석 → 분류 화물</p><p><strong>매점</strong>직원 + 식품 → 14 G + 평판</p><p><strong>정비소</strong>직원 + 부품 → 정차 중인 고장 열차 수리</p></div><p>시설에 직원을 여러 명 배치하면 빨라집니다. 직원을 대기실로 옮기면 회수할 수 있습니다. 시설의 ↶ 버튼은 대기 물자를 창고로 돌려보냅니다.</p><p>열차는 정차 후 <strong>42초</strong>부터 지연 페널티가 쌓이고, <strong>72초</strong>가 되면 강제 출발합니다. 만차 보너스는 <strong>45 G</strong>입니다. 매일 90초마다 유지비가 나갑니다.</p><p>두 번째 승강장, 직원 채용, 창고 확장, 작업대 개선, 자동 분류를 활용하세요. 평판 0 또는 자금 -100 G 미만이면 영업이 중단됩니다.</p><button class="primary large" data-action="close-help">운영 화면으로</button></dialog>
+<dialog id="result" class="modal"><span class="eyebrow" id="result-eyebrow">SHIFT REPORT</span><h2 id="result-title"></h2><p id="result-text"></p><div id="result-stats" class="result-stats"></div><button class="primary large" data-action="freeplay" id="freeplay">목표 달성 이후에도 계속 운영</button><button class="secondary large" data-action="new">새 역으로 다시 시작</button></dialog>
+<dialog id="reset-confirm" class="modal compact"><h2>새로 시작할까요?</h2><p>이 브라우저에 저장된 이끼역의 진행 상황이 초기화됩니다.</p><button class="primary large" data-action="new">새 영업 시작</button><button class="secondary large" data-action="cancel-reset">취소</button></dialog>
+<div id="toast" role="status" class="toast" hidden></div><noscript>이 게임을 실행하려면 JavaScript를 활성화해주세요.</noscript>
+<script src="src/sim.js"></script><script src="src/render.js"></script><script src="src/game.js"></script>
+</body></html>
